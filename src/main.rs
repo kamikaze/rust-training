@@ -1,3 +1,7 @@
+mod helloworld;
+mod guessing_game;
+
 fn main() {
-    println!("Hello, world!");
+    helloworld::run();
+    guessing_game::run();
 }
