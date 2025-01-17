@@ -87,7 +87,7 @@ impl ArchiveStream {
         }
     }
 
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let (data_tx, data_rx) = bounded(self.max_queue_size);
         let (archive_tx, archive_rx) = bounded(self.max_queue_size);
         let (compress_tx, compress_rx) = bounded(self.max_queue_size);
