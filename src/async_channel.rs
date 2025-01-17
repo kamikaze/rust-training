@@ -1,5 +1,7 @@
 use async_channel::{bounded, Receiver, Sender};
+use async_compression::tokio::bufread::BzEncoder;
 use tokio::{task, try_join};
+use tar::Builder;
 
 async fn publish(data_tx: Sender<Vec<u8>>, vector_size: usize) {
     for _ in 0..100 {
@@ -19,9 +21,11 @@ async fn consume(data_rx: Receiver<Vec<u8>>, archive_tx: Sender<Vec<u8>>) {
     }
 }
 
-async fn archive(archive_rx: Receiver<Vec<u8>>) {
+async fn archive(archive_rx: Receiver<Vec<u8>>, compress_tx: Sender<Vec<u8>>) {
     while let Ok(chunk) = archive_rx.recv().await {
         println!("Archiver received: {:?}", chunk);
+
+        compress_tx.send(chunk).await.expect("Failed to send a chunk");
     }
 
     // let archive_stream = receiver_to_stream(archive_rx);
@@ -45,17 +49,30 @@ async fn archive(archive_rx: Receiver<Vec<u8>>) {
     //     .await;
 }
 
+
+async fn compress(compress_rx: Receiver<Vec<u8>>) {
+    let mut tar_buffer = Vec::new();
+    let mut builder = Builder::new(&mut tar_buffer);
+    let bz_encoder = BzEncoder::new();
+
+    while let Ok(chunk) = compress_rx.recv().await {
+        println!("Compressor received: {:?}", chunk);
+    }
+}
+
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     const MAX_QUEUE_SIZE: usize = 10;
     let (data_tx, data_rx) = bounded(MAX_QUEUE_SIZE);
     let (archive_tx, archive_rx) = bounded(MAX_QUEUE_SIZE);
+    let (compress_tx, compress_rx) = bounded(MAX_QUEUE_SIZE);
     const VECTOR_SIZE: usize = 10;
 
     let publisher_handle = task::spawn(publish(data_tx, VECTOR_SIZE));
     let consumer_handle = task::spawn(consume(data_rx, archive_tx));
-    let archive_handle = task::spawn(archive(archive_rx));
+    let archive_handle = task::spawn(archive(archive_rx, compress_tx));
+    let compress_handle = task::spawn(compress(compress_rx));
 
-    try_join!(publisher_handle, consumer_handle, archive_handle)?;
+    try_join!(publisher_handle, consumer_handle, archive_handle, compress_handle)?;
 
     Ok(())
 }

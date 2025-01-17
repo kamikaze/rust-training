@@ -15,11 +15,11 @@ fn main() {
 
     rt.block_on(async { async_channel::run().await.unwrap(); });
 
-    helloworld::run();
-    guessing_game::run();
-    variables::run();
-    functions::run();
-    ownership::run();
-    references::run();
-    slices::run();
+    // helloworld::run();
+    // guessing_game::run();
+    // variables::run();
+    // functions::run();
+    // ownership::run();
+    // references::run();
+    // slices::run();
 }
