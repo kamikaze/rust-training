@@ -5,7 +5,6 @@ use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error;
-use aws_sdk_s3::primitives::DateTimeFormat::DateTime;
 use aws_sdk_s3::primitives::{ByteStream, ByteStreamError, DateTime};
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::{Client, Config};
@@ -14,6 +13,7 @@ use std::error::Error;
 use std::io::Write;
 use std::sync::Arc;
 use std::{env, fmt};
+use std::time::SystemTime;
 use tar::Builder;
 use tokio::{task, try_join};
 
@@ -91,7 +91,7 @@ struct ObjectChunk {
 async fn publish(data_tx: Sender<Arc<ObjectChunk>>, vector_size: usize) {
     let object_key: String = String::from("/path/to/file.txt");
     let object_size: i64 = 12345;
-    let last_modified = DateTime {};
+    let last_modified = DateTime::from(SystemTime::now());
 
     for idx in 0..100 {
         let data: Arc<[u8]> = Arc::from(vec![0u8; vector_size]);
