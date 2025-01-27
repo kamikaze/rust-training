@@ -5,13 +5,15 @@ use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error;
-use aws_sdk_s3::primitives::{ByteStream, ByteStreamError};
+use aws_sdk_s3::primitives::DateTimeFormat::DateTime;
+use aws_sdk_s3::primitives::{ByteStream, ByteStreamError, DateTime};
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::{Client, Config};
 use aws_types::region::Region;
 use std::error::Error;
-use std::{env, fmt};
 use std::io::Write;
+use std::sync::Arc;
+use std::{env, fmt};
 use tar::Builder;
 use tokio::{task, try_join};
 
@@ -76,17 +78,41 @@ fn get_client(params: &S3Params) -> Client {
     client
 }
 
-async fn publish(data_tx: Sender<Vec<u8>>, vector_size: usize) {
-    for _ in 0..100 {
-        let vec = vec![0u8; vector_size];
+#[derive(Debug, Clone)]
+struct ObjectChunk {
+    idx: u64,
+    object_key: String,
+    object_size: i64,
+    last_modified: DateTime,
+    data: Arc<[u8]>,
+    is_last: bool,
+}
+
+async fn publish(data_tx: Sender<Arc<ObjectChunk>>, vector_size: usize) {
+    let object_key: String = String::from("/path/to/file.txt");
+    let object_size: i64 = 12345;
+    let last_modified = DateTime {};
+
+    for idx in 0..100 {
+        let data: Arc<[u8]> = Arc::from(vec![0u8; vector_size]);
+        let object_chunk: ObjectChunk = ObjectChunk {
+            idx,
+            object_key: object_key.clone(),
+            object_size,
+            last_modified,
+            data,
+            is_last: idx == 99,
+        };
+        let chunk: Arc<ObjectChunk> = Arc::from(object_chunk);
+
         data_tx
-            .send(vec)
+            .send(chunk)
             .await
             .expect("Failed to send a vector to data_tx");
     }
 }
 
-async fn consume(data_rx: Receiver<Vec<u8>>, archive_tx: Sender<Vec<u8>>) {
+async fn consume(data_rx: Receiver<Arc<ObjectChunk>>, archive_tx: Sender<Arc<ObjectChunk>>) {
     while let Ok(chunk) = data_rx.recv().await {
         println!("Consumer received: {:?}", chunk);
 
@@ -97,19 +123,22 @@ async fn consume(data_rx: Receiver<Vec<u8>>, archive_tx: Sender<Vec<u8>>) {
     }
 }
 
-async fn archive(archive_rx: Receiver<Vec<u8>>, compress_tx: Sender<u8>) {
+async fn archive(archive_rx: Receiver<Arc<ObjectChunk>>, compress_tx: Sender<u8>) {
     const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
     let mut tar_buffer = Vec::new();
     let mut builder = Builder::new(&mut tar_buffer);
 
     while let Ok(chunk) = archive_rx.recv().await {
         println!("Archiver received: {:?}", chunk);
+        let data = chunk.data;
 
         let mut writer = builder
             .append_writer()
             .expect("Failed to append a writer to tar");
 
-        writer.write(chunk.as_slice()).expect("Failed to write a chunk to tar");
+        writer
+            .write(data.as_ref())
+            .expect("Failed to write a chunk to tar");
 
         while tar_buffer.len() >= MAX_BUFFER_SIZE {
             let tar_chunk: Vec<u8> = tar_buffer.drain(..MAX_BUFFER_SIZE).collect();
